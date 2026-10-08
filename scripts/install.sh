@@ -22,6 +22,9 @@ echo "Node $(node -v)"
 npm install -g --allow-scripts=@anthropic-ai/claude-code,opencode-ai,@github/keytar \
   @anthropic-ai/claude-code @google/gemini-cli opencode-ai
 
+# Paperclip (orquestrador). O Postgres embutido precisa do script de instalação.
+npm install -g --allow-scripts=@embedded-postgres/linux-x64,ssh2,protobufjs paperclipai
+
 # Cubicle (escritório visual)
 if [ ! -d /opt/cubicle ]; then
   git clone https://github.com/caglarutkuguler/cubicle.git /opt/cubicle
@@ -30,7 +33,8 @@ fi
 cat <<'MSG'
 
 Pronto. Próximos passos:
-  1. Paperclip:  npx paperclipai@latest onboard --yes   (UI em http://localhost:3100)
+  1. Paperclip:  paperclipai onboard   (escolha authenticated + private pra acessar pela rede)
+                 paperclipai run       (UI em http://IP-DO-CONTAINER:3100)
   2. Cubicle:    node /opt/cubicle/bin/cubicle.js --host 0.0.0.0
                  depois abra http://IP-DO-CONTAINER:3200
   3. Logins:     claude   |   gemini   |   opencode auth login
