@@ -1,0 +1,15 @@
+[Unit]
+Description=Paperclip (orquestrador de agentes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cubicle
+WorkingDirectory=/home/cubicle
+Environment=HOME=/home/cubicle
+ExecStart=/usr/bin/paperclipai run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

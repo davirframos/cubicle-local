@@ -1,0 +1,17 @@
+[Unit]
+Description=Cubicle (escritório visual dos agentes)
+After=paperclip.service
+Wants=paperclip.service
+
+[Service]
+User=cubicle
+WorkingDirectory=/opt/cubicle
+Environment=HOME=/home/cubicle
+# Arquivo com PAPERCLIP_TOKEN=... (chave de API do Paperclip, chmod 600)
+EnvironmentFile=-/home/cubicle/.cubicle.env
+ExecStart=/usr/bin/node /opt/cubicle/bin/cubicle.js --host 0.0.0.0 --port 3200 --paperclip http://127.0.0.1:3100
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
