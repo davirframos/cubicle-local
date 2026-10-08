@@ -18,7 +18,9 @@ fi
 echo "Node $(node -v)"
 
 # CLIs dos agentes
-npm install -g @anthropic-ai/claude-code @google/gemini-cli opencode-ai
+# npm 11+ bloqueia scripts de instalação por padrão; Claude Code e OpenCode precisam deles
+npm install -g --allow-scripts=@anthropic-ai/claude-code,opencode-ai,@github/keytar \
+  @anthropic-ai/claude-code @google/gemini-cli opencode-ai
 
 # Cubicle (escritório visual)
 if [ ! -d /opt/cubicle ]; then
