@@ -30,9 +30,12 @@ if [ ! -d /opt/cubicle ]; then
   git clone https://github.com/caglarutkuguler/cubicle.git /opt/cubicle
 fi
 
+# O Postgres embutido não roda como root: o Paperclip e os agentes rodam com o usuário "cubicle"
+id cubicle >/dev/null 2>&1 || adduser --disabled-password --gecos "" cubicle
+
 cat <<'MSG'
 
-Pronto. Próximos passos:
+Pronto. Próximos passos (como usuário cubicle: su - cubicle):
   1. Paperclip:  paperclipai onboard   (escolha authenticated + private pra acessar pela rede)
                  paperclipai run       (UI em http://IP-DO-CONTAINER:3100)
   2. Cubicle:    node /opt/cubicle/bin/cubicle.js --host 0.0.0.0
