@@ -11,12 +11,15 @@ no pipeline HyperFrames (init → build → check → snapshot → render → MP
 Cada padrão tem um arquivo de referência com spec completa, timings,
 técnica GSAP usada e os bugs reais encontrados (e como evitá-los).
 
-Isto é conhecimento reutilizável, não código de produção: não está
-plugado no `editor.py`/pipeline Paperclip ainda (esse FFmpeg script vive
-fora deste repo, direto no servidor). Esta skill serve pra Claude Code
-(Tech Lead) gerar rapidamente a composição HyperFrames de um desses
-padrões quando o Editor pedir, sem repetir a investigação/depuração já
-feita.
+Está plugada no pipeline via `pipeline/gerar_overlays.py` + `pipeline/editor.py`
+(ver `references/integracao-pipeline.md`): o Roteirista marca overlays
+em `roteiros.json`, e por padrão é o agente **Dev** (OpenCode + Kimi K3
+grátis) quem lê esta skill e monta/renderiza a composição — de
+propósito, pra manter a geração automática no "tudo grátis" do canal, em
+vez de gastar a assinatura do Claude numa etapa repetitiva. O Tech Lead
+(Claude Code) fica reservado pra prototipagem manual, como os 5 padrões
+abaixo foram validados, ou pra forçar `--agent claude` num overlay
+específico que o Dev não acertou.
 
 ## Os 5 padrões
 

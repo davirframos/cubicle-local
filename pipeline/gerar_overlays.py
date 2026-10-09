@@ -12,11 +12,18 @@ Lê roteiros.json. Cada roteiro pode ter uma lista opcional "overlays":
                   skills/motion-design-editorial/references/integracao-pipeline.md }
   }
 
-Pra cada overlay, despacha o Tech Lead (Claude Code, modo headless/print)
-com a skill motion-design-editorial + o conteúdo, pra montar e renderizar
-a composição HyperFrames correspondente. Salva o mp4 resultante em
-<out>/<roteiro>_<overlay>_<padrao>.mp4 e grava esse caminho de volta em
-overlays[i]["arquivo"].
+Pra cada overlay, despacha o agente **Dev** (OpenCode, modelo grátis —
+Kimi K3 por padrão) em modo headless, com a skill motion-design-editorial
++ o conteúdo, pra montar e renderizar a composição HyperFrames
+correspondente. Isso é de propósito: é a etapa que roda sem supervisão,
+possivelmente muitas vezes por vídeo — usar o Tech Lead (Claude Code,
+assinatura paga) aqui consumiria sua assinatura à toa. Guarde o Tech
+Lead pra prototipagem manual/supervisionada (como foi feito pra validar
+os 5 padrões) ou pra correção pontual de um overlay que o Dev não
+acertou.
+
+Salva o mp4 resultante em <out>/<roteiro>_<overlay>_<padrao>.mp4 e grava
+esse caminho de volta em overlays[i]["arquivo"].
 
 Escreve roteiros.overlays.json (mesma estrutura de roteiros.json, já
 enriquecida com "arquivo") ao lado do roteiros.json original — é esse
@@ -30,14 +37,28 @@ Uso:
     --workdir /tmp/overlays-build \
     --out overlays/
 
-Pré-requisitos no servidor: `claude` (Claude Code CLI) autenticado,
-Node + npx (pro hyperframes CLI). Ver
-skills/motion-design-editorial/references/ambiente.md pros workarounds
-de rede/fonte/browser headless que podem ser necessários nesta infra.
+  # trocar o modelo grátis, ou usar a reserva como fallback automático
+  # quando a camada grátis do K3 falhar/esgotar:
+  python3 gerar_overlays.py ... --modelo kimi-k3-free --modelo-reserva <id-kimi-k2.6-nvidia>
 
-NÃO TESTADO EM PRODUÇÃO: a sintaxe exata de `claude -p` abaixo deve ser
-conferida contra a versão instalada no servidor (`claude --help`) antes
-de confiar nisso rodando sozinho.
+  # caso pontual: forçar o Tech Lead (Claude Code, assinatura) num
+  # overlay específico, por ex. pra corrigir um que o Dev não acertou:
+  python3 gerar_overlays.py ... --agent claude
+
+Pré-requisitos no servidor: `opencode` autenticado (OpenCode Zen/ZenMux
+pro Kimi K3 grátis — ver setup/configurar-agentes.md), Node + npx (pro
+hyperframes CLI). Ver skills/motion-design-editorial/references/ambiente.md
+pros workarounds de rede/fonte/browser headless que podem ser
+necessários nesta infra.
+
+NÃO TESTADO EM PRODUÇÃO: a sintaxe exata de `opencode run` (e a flag de
+modelo) abaixo deve ser conferida contra a versão instalada no servidor
+(`opencode --help` / `opencode run --help`) antes de confiar nisso
+rodando sozinho. Kimi K3 é bem mais fraco que Claude pra esse tipo de
+tarefa agente-longa (ler várias referências, rodar check/render,
+depurar) — espere precisar revisar mais os resultados, principalmente
+pros padrões já marcados como "baixa prontidão" no
+integracao-pipeline.md (ritmo, território, janela).
 """
 
 import argparse
@@ -71,7 +92,25 @@ Ao final, a ÚLTIMA linha da sua resposta deve ser exatamente o caminho
 absoluto do arquivo renderizado, nada mais nessa linha."""
 
 
-def gerar_overlay(skill_dir: Path, overlay: dict, workdir: Path, out_mp4: Path) -> Path:
+def montar_comando(agent: str, modelo: str, prompt: str) -> list:
+    if agent == "opencode":
+        cmd = ["opencode", "run"]
+        if modelo:
+            cmd += ["--model", modelo]
+        cmd += [prompt]
+        return cmd
+    if agent == "claude":
+        return ["claude", "-p", prompt, "--output-format", "text"]
+    raise ValueError(f"agente desconhecido: {agent}")
+
+
+def despachar(agent: str, modelo: str, prompt: str, workdir: Path, timeout: int):
+    cmd = montar_comando(agent, modelo, prompt)
+    return subprocess.run(cmd, cwd=workdir, capture_output=True, text=True, timeout=timeout)
+
+
+def gerar_overlay(skill_dir: Path, overlay: dict, workdir: Path, out_mp4: Path,
+                   agent: str, modelo: str, modelo_reserva: str, timeout: int) -> Path:
     padrao = overlay["padrao"]
     duracao = float(overlay["end"]) - float(overlay["start"])
     conteudo = overlay.get("conteudo", {})
@@ -80,13 +119,15 @@ def gerar_overlay(skill_dir: Path, overlay: dict, workdir: Path, out_mp4: Path) 
 
     prompt = montar_prompt(skill_dir, padrao, duracao, conteudo, out_mp4)
 
-    print(f"  -> despachando Tech Lead pra {padrao} ({duracao:.2f}s)...", file=sys.stderr)
-    resultado = subprocess.run(
-        ["claude", "-p", prompt, "--output-format", "text"],
-        cwd=workdir, capture_output=True, text=True, timeout=900,
-    )
+    print(f"  -> despachando {agent}/{modelo or '(padrão)'} pra {padrao} ({duracao:.2f}s)...", file=sys.stderr)
+    resultado = despachar(agent, modelo, prompt, workdir, timeout)
+
+    if resultado.returncode != 0 and agent == "opencode" and modelo_reserva:
+        print(f"  -> {modelo} falhou (camada grátis esgotada?), tentando reserva {modelo_reserva}...", file=sys.stderr)
+        resultado = despachar(agent, modelo_reserva, prompt, workdir, timeout)
+
     if resultado.returncode != 0:
-        raise RuntimeError(f"Tech Lead falhou em {padrao}: {resultado.stderr.strip()[-2000:]}")
+        raise RuntimeError(f"Dev falhou em {padrao}: {resultado.stderr.strip()[-2000:]}")
 
     linhas = [l.strip() for l in resultado.stdout.strip().splitlines() if l.strip()]
     caminho_reportado = Path(linhas[-1]) if linhas else None
@@ -96,7 +137,7 @@ def gerar_overlay(skill_dir: Path, overlay: dict, workdir: Path, out_mp4: Path) 
     if out_mp4.exists():
         return out_mp4
     raise RuntimeError(
-        f"Tech Lead não deixou o render em {out_mp4} nem reportou um caminho válido "
+        f"Agente não deixou o render em {out_mp4} nem reportou um caminho válido "
         f"(última linha: {linhas[-1] if linhas else '(vazio)'})"
     )
 
@@ -107,6 +148,13 @@ def main():
     ap.add_argument("--skill-dir", required=True, type=Path)
     ap.add_argument("--workdir", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--agent", default="opencode", choices=["opencode", "claude"],
+                     help="agente a usar (padrão: opencode = Dev, grátis). 'claude' usa o Tech Lead/assinatura.")
+    ap.add_argument("--modelo", default="kimi-k3-free",
+                     help="modelo passado ao agente opencode (ver setup/configurar-agentes.md); ignorado com --agent claude")
+    ap.add_argument("--modelo-reserva", default="",
+                     help="modelo de fallback (ex: Kimi K2.6 via NVIDIA NIM) se --modelo falhar; vazio = sem fallback")
+    ap.add_argument("--timeout", type=int, default=900, help="timeout em segundos por overlay")
     args = ap.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -132,7 +180,10 @@ def main():
             if build_dir.exists():
                 shutil.rmtree(build_dir)
 
-            caminho = gerar_overlay(args.skill_dir, overlay, build_dir, out_mp4)
+            caminho = gerar_overlay(
+                args.skill_dir, overlay, build_dir, out_mp4,
+                args.agent, args.modelo, args.modelo_reserva, args.timeout,
+            )
             overlay["arquivo"] = str(caminho)
 
     out_json = args.roteiros.parent / f"{args.roteiros.stem}.overlays.json"
