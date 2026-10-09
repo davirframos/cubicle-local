@@ -13,14 +13,15 @@ técnica GSAP usada e os bugs reais encontrados (e como evitá-los).
 
 Está plugada no pipeline via `pipeline/gerar_overlays.py` + `pipeline/editor.py`
 (ver `references/integracao-pipeline.md`): o Roteirista marca overlays
-em `roteiros.json`, e por padrão é o agente **Dev** (OpenCode + modelo
-grátis via OpenRouter, embutido no OpenCode) quem lê esta skill e
-monta/renderiza a composição — de propósito, pra manter a geração
-automática no "tudo grátis" do canal, em
-vez de gastar a assinatura do Claude numa etapa repetitiva. O Tech Lead
-(Claude Code) fica reservado pra prototipagem manual, como os 5 padrões
-abaixo foram validados, ou pra forçar `--agent claude` num overlay
-específico que o Dev não acertou.
+em `roteiros.json`, e o script cria uma issue real no Paperclip pra um
+agente dedicado, **Editor Overlays** (OpenCode + modelo grátis via
+OpenRouter), que lê esta skill e monta/renderiza a composição — de
+propósito, pra manter a geração automática no "tudo grátis" do canal,
+em vez de gastar a assinatura do Claude numa etapa repetitiva. O Tech
+Lead (Claude Code) fica reservado pra prototipagem manual, como os 5
+padrões abaixo foram validados, ou como agente de reserva
+(`--agent-id-reserva`) se o Editor Overlays não acertar um overlay
+específico.
 
 ## Os 5 padrões
 

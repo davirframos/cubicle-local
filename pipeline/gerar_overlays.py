@@ -12,19 +12,20 @@ Lê roteiros.json. Cada roteiro pode ter uma lista opcional "overlays":
                   skills/motion-design-editorial/references/integracao-pipeline.md }
   }
 
-Pra cada overlay, despacha o agente **Dev** (OpenCode, modelo grátis via
-OpenRouter — Nemotron 3 Ultra por padrão, provider embutido no OpenCode,
-sem precisar de conta/chave em lugar nenhum) em modo headless, com a
-skill motion-design-editorial + o conteúdo, pra montar e renderizar a
-composição HyperFrames correspondente. Isso é de propósito: é a etapa
-que roda sem supervisão, possivelmente muitas vezes por vídeo — usar o
-Tech Lead (Claude Code, assinatura paga) aqui consumiria sua assinatura
-à toa. Guarde o Tech Lead pra prototipagem manual/supervisionada (como
-foi feito pra validar os 5 padrões) ou pra correção pontual de um
-overlay que o Dev não acertou.
+Pra cada overlay, cria uma ISSUE no Paperclip (via `paperclipai issue
+create`) atribuída a um agente real do seu escritório — por padrão o
+agente "Editor Overlays" (OpenCode + Nemotron 3 Ultra grátis via
+OpenRouter). Confirmado na prática: criar a issue com
+--assignee-agent-id já dispara a run sozinha, sem precisar de
+`agent wake` nem nada parecido — o Paperclip pega a issue automaticamente
+em segundos.
 
-Salva o mp4 resultante em <out>/<roteiro>_<overlay>_<padrao>.mp4 e grava
-esse caminho de volta em overlays[i]["arquivo"].
+O script espera a issue chegar em status "done" e confere se o mp4
+apareceu no caminho absoluto que foi pedido no prompt (em vez de tentar
+interpretar a resposta em texto do agente — é mais simples e mais
+confiável: o próprio `hyperframes render -o <caminho>` já garante que o
+arquivo existe nesse caminho exato se deu certo). Salva o caminho em
+overlays[i]["arquivo"].
 
 Escreve roteiros.overlays.json (mesma estrutura de roteiros.json, já
 enriquecida com "arquivo") ao lado do roteiros.json original — é esse
@@ -35,50 +36,71 @@ Uso:
   python3 gerar_overlays.py \
     --roteiros roteiros.json \
     --skill-dir /home/cubicle/cubicle-local/skills/motion-design-editorial \
-    --workdir /tmp/overlays-build \
+    --company-id 2402a146-f7d1-4af7-8396-acacadd98e13 \
+    --agent-id b107fce3-6e9f-4895-ae60-7627dc1d2028 \
     --out overlays/
 
-  # trocar o modelo grátis (confira ids atuais com `opencode models openrouter`),
-  # ou a reserva usada como fallback automático se o padrão falhar/travar:
-  python3 gerar_overlays.py ... --modelo openrouter/nvidia/nemotron-3-ultra-550b-a55b:free \
-                              --modelo-reserva openrouter/nvidia/nemotron-3-super-120b-a12b:free
+  # com um agente de reserva (ex: Tech Lead/Claude Code) se o principal
+  # não deixar o arquivo pronto (erro, travou, ou "done" sem renderizar):
+  python3 gerar_overlays.py ... --agent-id-reserva <id-do-tech-lead>
 
-  # caso pontual: forçar o Tech Lead (Claude Code, assinatura) num
-  # overlay específico, por ex. pra corrigir um que o Dev não acertou:
-  python3 gerar_overlays.py ... --agent claude
+Pré-requisitos no servidor: `paperclipai` autenticado (fluxo normal de
+board auth — se pedir, abra a URL de aprovação no navegador, trocando
+"localhost" pelo IP do container), o agente já criado no Paperclip com
+adapter OpenCode + modelo grátis (ver
+skills/motion-design-editorial/references/integracao-pipeline.md), Node
++ npx (pro hyperframes CLI) disponível no ambiente onde esse agente
+roda. Ver skills/motion-design-editorial/references/ambiente.md pros
+workarounds de rede/fonte/browser headless que podem ser necessários.
 
-Pré-requisitos no servidor: `opencode` autenticado (basta `opencode auth
-login`; o provider `openrouter` com os modelos `:free` já vem embutido,
-sem precisar de ZenMux/conta separada), Node + npx (pro hyperframes
-CLI). Ver skills/motion-design-editorial/references/ambiente.md pros
-workarounds de rede/fonte/browser headless que podem ser necessários
-nesta infra.
-
-Testado manualmente uma vez: `opencode run --model
-openrouter/nvidia/nemotron-3-ultra-550b-a55b:free "..."` respondeu
-corretamente num teste simples. O fluxo completo (ler a skill, montar
-GSAP, rodar check/render) ainda não foi validado de ponta a ponta — esse
-modelo é bem mais fraco que Claude pra tarefa agente-longa, espere
-precisar revisar mais os resultados, principalmente pros padrões já
-marcados como "baixa prontidão" no integracao-pipeline.md (ritmo,
-território, janela).
+Validado manualmente até aqui: criar issue → run dispara sozinha →
+status chega em "done" (campo `status` do `paperclipai issue get`,
+confirmado contra uma issue real). NÃO validado ainda: o fluxo completo
+de gerar um overlay de verdade (ler a skill, montar GSAP, rodar
+check/render) — só testamos uma issue trivial ("diga oi"). Rode um
+`callout` simples primeiro antes de confiar em produção.
 """
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
+from typing import Optional
+
+# status que ainda consideramos "em andamento" — qualquer outra coisa
+# que não seja "done" é tratada como terminal/falha. Não temos a lista
+# completa de status possíveis do Paperclip; ajuste aqui se aparecer um
+# novo status ativo que o script não deveria tratar como erro.
+STATUS_EM_ANDAMENTO = {"todo", "in_progress", "queued", "running", "blocked", "in_review"}
+STATUS_SUCESSO = "done"
 
 
-def montar_prompt(skill_dir: Path, padrao: str, duracao: float, conteudo: dict, out_mp4: Path) -> str:
+def paperclipai(args: list, esperar_json: bool = True):
+    cmd = ["paperclipai", *args]
+    if esperar_json and "--json" not in cmd:
+        cmd.append("--json")
+    resultado = subprocess.run(cmd, capture_output=True, text=True)
+    if resultado.returncode != 0:
+        raise RuntimeError(f"paperclipai {' '.join(args)} falhou: {resultado.stderr.strip()[-2000:]}")
+    if not esperar_json:
+        return resultado.stdout
+    try:
+        return json.loads(resultado.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"paperclipai {' '.join(args)} não devolveu JSON válido: {e}\n{resultado.stdout[:500]}")
+
+
+def montar_prompt(skill_dir: Path, padrao: str, duracao: float, conteudo: dict,
+                   build_dir: Path, out_mp4: Path) -> str:
     return f"""Leia {skill_dir}/SKILL.md, {skill_dir}/references/{padrao}.md,
 {skill_dir}/references/ambiente.md e {skill_dir}/references/gotchas-gsap.md.
 
-Monte uma composição HyperFrames do padrão "{padrao}" no diretório atual,
-com duração {duracao:.2f}s, usando como conteúdo real (em vez do texto
-de exemplo do arquivo de referência):
+Crie o diretório {build_dir} (mkdir -p se não existir) e monte ali uma
+composição HyperFrames do padrão "{padrao}", com duração {duracao:.2f}s,
+usando como conteúdo real (em vez do texto de exemplo do arquivo de
+referência):
 
 {json.dumps(conteudo, ensure_ascii=False, indent=2)}
 
@@ -86,79 +108,109 @@ Siga a spec visual, paleta, timings e técnica GSAP já documentados no
 arquivo de referência — troque só o conteúdo (texto/rótulos/eventos),
 não a estrutura nem os tempos dos beats, a menos que o conteúdo real
 exija ajuste de tamanho/quebra de texto. Rode `npx hyperframes check .`
-até passar sem erros, tire snapshots nos tempos-chave pra conferir
-visualmente, depois renderize com:
+dentro de {build_dir} até passar sem erros, tire snapshots nos
+tempos-chave pra conferir visualmente, depois renderize com:
 
   npx hyperframes render . --skill=motion-graphics -q high -o {out_mp4}
 
-Ao final, a ÚLTIMA linha da sua resposta deve ser exatamente o caminho
-absoluto do arquivo renderizado, nada mais nessa linha."""
+O caminho de saída {out_mp4} é absoluto e obrigatório — é assim que o
+pipeline confirma que o overlay foi gerado. Confirme ao final que esse
+arquivo existe antes de encerrar a task."""
 
 
-def montar_comando(agent: str, modelo: str, prompt: str) -> list:
-    if agent == "opencode":
-        cmd = ["opencode", "run"]
-        if modelo:
-            cmd += ["--model", modelo]
-        cmd += [prompt]
-        return cmd
-    if agent == "claude":
-        return ["claude", "-p", prompt, "--output-format", "text"]
-    raise ValueError(f"agente desconhecido: {agent}")
+def criar_issue(company_id: str, agent_id: str, titulo: str, prompt: str):
+    data = paperclipai([
+        "issue", "create", "-C", company_id,
+        "--title", titulo,
+        "--description", prompt,
+        "--assignee-agent-id", agent_id,
+    ])
+    return data["id"], data.get("identifier", data["id"])
 
 
-def despachar(agent: str, modelo: str, prompt: str, workdir: Path, timeout: int):
-    cmd = montar_comando(agent, modelo, prompt)
-    return subprocess.run(cmd, cwd=workdir, capture_output=True, text=True, timeout=timeout)
+def esperar_issue(issue_id: str, timeout: int, poll_every: int):
+    deadline = time.time() + timeout
+    ultimo_status = None
+    while time.time() < deadline:
+        issue = paperclipai(["issue", "get", issue_id])
+        ultimo_status = issue.get("status")
+        if ultimo_status == STATUS_SUCESSO:
+            return issue
+        if ultimo_status not in STATUS_EM_ANDAMENTO:
+            raise RuntimeError(f"issue {issue_id} terminou com status inesperado: {ultimo_status!r}")
+        time.sleep(poll_every)
+    raise TimeoutError(f"issue {issue_id} não chegou a 'done' em {timeout}s (último status: {ultimo_status!r})")
 
 
-def gerar_overlay(skill_dir: Path, overlay: dict, workdir: Path, out_mp4: Path,
-                   agent: str, modelo: str, modelo_reserva: str, timeout: int) -> Path:
+def tentar_extrair_caminho_dos_comentarios(issue_id: str) -> Optional[Path]:
+    """Fallback: se o mp4 esperado não existe, procura um caminho
+    existente na última linha de algum comentário do agente."""
+    comentarios = paperclipai(["issue", "comments", issue_id, "--order", "asc"])
+    for c in reversed(comentarios):
+        if c.get("authorType") != "agent":
+            continue
+        linhas = [l.strip() for l in c.get("body", "").strip().splitlines() if l.strip()]
+        if not linhas:
+            continue
+        candidato = Path(linhas[-1])
+        if candidato.exists():
+            return candidato
+    return None
+
+
+def gerar_overlay(company_id: str, agent_id: str, agent_id_reserva: str,
+                   skill_dir: Path, overlay: dict, build_dir: Path, out_mp4: Path,
+                   timeout: int, poll_every: int) -> Path:
     padrao = overlay["padrao"]
     duracao = float(overlay["end"]) - float(overlay["start"])
     conteudo = overlay.get("conteudo", {})
-    workdir.mkdir(parents=True, exist_ok=True)
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
 
-    prompt = montar_prompt(skill_dir, padrao, duracao, conteudo, out_mp4)
+    prompt = montar_prompt(skill_dir, padrao, duracao, conteudo, build_dir, out_mp4)
+    titulo = f"Overlay {padrao} — {out_mp4.stem}"
 
-    print(f"  -> despachando {agent}/{modelo or '(padrão)'} pra {padrao} ({duracao:.2f}s)...", file=sys.stderr)
-    resultado = despachar(agent, modelo, prompt, workdir, timeout)
+    for tentativa_agent_id in filter(None, [agent_id, agent_id_reserva]):
+        issue_id, identificador = criar_issue(company_id, tentativa_agent_id, titulo, prompt)
+        print(f"  -> issue {identificador} criada (agente {tentativa_agent_id}), aguardando...", file=sys.stderr)
+        try:
+            esperar_issue(issue_id, timeout, poll_every)
+        except (RuntimeError, TimeoutError) as e:
+            print(f"  -> {identificador} não terminou bem: {e}", file=sys.stderr)
+            if tentativa_agent_id == agent_id and agent_id_reserva:
+                print("  -> tentando com o agente de reserva...", file=sys.stderr)
+                continue
+            raise
 
-    if resultado.returncode != 0 and agent == "opencode" and modelo_reserva:
-        print(f"  -> {modelo} falhou (camada grátis esgotada?), tentando reserva {modelo_reserva}...", file=sys.stderr)
-        resultado = despachar(agent, modelo_reserva, prompt, workdir, timeout)
+        if out_mp4.exists() and out_mp4.stat().st_size > 0:
+            return out_mp4
 
-    if resultado.returncode != 0:
-        raise RuntimeError(f"Dev falhou em {padrao}: {resultado.stderr.strip()[-2000:]}")
+        caminho_alternativo = tentar_extrair_caminho_dos_comentarios(issue_id)
+        if caminho_alternativo:
+            return caminho_alternativo
 
-    linhas = [l.strip() for l in resultado.stdout.strip().splitlines() if l.strip()]
-    caminho_reportado = Path(linhas[-1]) if linhas else None
+        msg = f"issue {identificador} terminou 'done' mas {out_mp4} não existe — confira a issue no Paperclip"
+        if tentativa_agent_id == agent_id and agent_id_reserva:
+            print(f"  -> {msg}, tentando com o agente de reserva...", file=sys.stderr)
+            continue
+        raise RuntimeError(msg)
 
-    if caminho_reportado and caminho_reportado.exists():
-        return caminho_reportado
-    if out_mp4.exists():
-        return out_mp4
-    raise RuntimeError(
-        f"Agente não deixou o render em {out_mp4} nem reportou um caminho válido "
-        f"(última linha: {linhas[-1] if linhas else '(vazio)'})"
-    )
+    raise RuntimeError(f"não foi possível gerar o overlay {padrao} ({out_mp4})")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--roteiros", required=True, type=Path)
-    ap.add_argument("--skill-dir", required=True, type=Path)
-    ap.add_argument("--workdir", required=True, type=Path)
+    ap.add_argument("--skill-dir", required=True, type=Path,
+                     help="caminho absoluto de skills/motion-design-editorial no servidor")
+    ap.add_argument("--company-id", required=True, help="id da empresa no Paperclip (`paperclipai company list`)")
+    ap.add_argument("--agent-id", required=True, help="id do agente que vai gerar os overlays (ex: Editor Overlays)")
+    ap.add_argument("--agent-id-reserva", default="",
+                     help="id de um agente alternativo (ex: Tech Lead) se o principal falhar; vazio = sem fallback")
+    ap.add_argument("--build-dir", default="/tmp/overlays-build", type=Path,
+                     help="diretório base (no host onde o agente roda) onde cada overlay monta seu projeto HyperFrames")
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--agent", default="opencode", choices=["opencode", "claude"],
-                     help="agente a usar (padrão: opencode = Dev, grátis). 'claude' usa o Tech Lead/assinatura.")
-    ap.add_argument("--modelo", default="openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
-                     help="modelo passado ao agente opencode, formato provider/model "
-                          "(confirme ids atuais com `opencode models openrouter`); ignorado com --agent claude")
-    ap.add_argument("--modelo-reserva", default="openrouter/nvidia/nemotron-3-super-120b-a12b:free",
-                     help="modelo de fallback se --modelo falhar/travar; vazio = sem fallback")
-    ap.add_argument("--timeout", type=int, default=900, help="timeout em segundos por overlay")
+    ap.add_argument("--timeout", type=int, default=1200, help="timeout em segundos por overlay (padrão: 20min)")
+    ap.add_argument("--poll-every", type=int, default=15, help="intervalo em segundos entre checagens de status")
     args = ap.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -180,13 +232,12 @@ def main():
             print(f"[{feito}/{total}] roteiro {ri}, overlay {oi}: {padrao}", file=sys.stderr)
 
             out_mp4 = args.out / f"{ri:02d}_{oi:02d}_{padrao}.mp4"
-            build_dir = args.workdir / f"{ri:02d}_{oi:02d}_{padrao}"
-            if build_dir.exists():
-                shutil.rmtree(build_dir)
+            build_dir = args.build_dir / f"{ri:02d}_{oi:02d}_{padrao}"
 
             caminho = gerar_overlay(
+                args.company_id, args.agent_id, args.agent_id_reserva,
                 args.skill_dir, overlay, build_dir, out_mp4,
-                args.agent, args.modelo, args.modelo_reserva, args.timeout,
+                args.timeout, args.poll_every,
             )
             overlay["arquivo"] = str(caminho)
 
