@@ -38,3 +38,22 @@ O servidor (i5-3210M, 8 GB de RAM, sem GPU) não roda modelos de IA. Ele roda s�
 
 Cada skill é uma pasta em `skills/` com um `SKILL.md` (nome, descrição e instruções), além de scripts opcionais.
 Exemplo: [skills/resumo-do-servidor](skills/resumo-do-servidor/SKILL.md).
+
+## Pipeline do canal dark
+
+Edição automática de vídeo, em `pipeline/`:
+
+```
+roteiros.json (Roteirista, com "overlays" opcionais)
+      |
+pipeline/gerar_overlays.py   despacha o Tech Lead (skill motion-design-editorial)
+      v                       pra renderizar cada overlay
+roteiros.overlays.json
+      |
+pipeline/editor.py            100% determinístico: corta, legenda e
+      v                       compõe os overlays prontos com FFmpeg
+prontos/*.mp4
+```
+
+Ver [skills/motion-design-editorial/references/integracao-pipeline.md](skills/motion-design-editorial/references/integracao-pipeline.md)
+pro schema de `overlays` e o contrato de conteúdo de cada padrão.
