@@ -12,15 +12,16 @@ Lê roteiros.json. Cada roteiro pode ter uma lista opcional "overlays":
                   skills/motion-design-editorial/references/integracao-pipeline.md }
   }
 
-Pra cada overlay, despacha o agente **Dev** (OpenCode, modelo grátis —
-Kimi K3 por padrão) em modo headless, com a skill motion-design-editorial
-+ o conteúdo, pra montar e renderizar a composição HyperFrames
-correspondente. Isso é de propósito: é a etapa que roda sem supervisão,
-possivelmente muitas vezes por vídeo — usar o Tech Lead (Claude Code,
-assinatura paga) aqui consumiria sua assinatura à toa. Guarde o Tech
-Lead pra prototipagem manual/supervisionada (como foi feito pra validar
-os 5 padrões) ou pra correção pontual de um overlay que o Dev não
-acertou.
+Pra cada overlay, despacha o agente **Dev** (OpenCode, modelo grátis via
+OpenRouter — Nemotron 3 Ultra por padrão, provider embutido no OpenCode,
+sem precisar de conta/chave em lugar nenhum) em modo headless, com a
+skill motion-design-editorial + o conteúdo, pra montar e renderizar a
+composição HyperFrames correspondente. Isso é de propósito: é a etapa
+que roda sem supervisão, possivelmente muitas vezes por vídeo — usar o
+Tech Lead (Claude Code, assinatura paga) aqui consumiria sua assinatura
+à toa. Guarde o Tech Lead pra prototipagem manual/supervisionada (como
+foi feito pra validar os 5 padrões) ou pra correção pontual de um
+overlay que o Dev não acertou.
 
 Salva o mp4 resultante em <out>/<roteiro>_<overlay>_<padrao>.mp4 e grava
 esse caminho de volta em overlays[i]["arquivo"].
@@ -37,28 +38,30 @@ Uso:
     --workdir /tmp/overlays-build \
     --out overlays/
 
-  # trocar o modelo grátis, ou usar a reserva como fallback automático
-  # quando a camada grátis do K3 falhar/esgotar:
-  python3 gerar_overlays.py ... --modelo kimi-k3-free --modelo-reserva <id-kimi-k2.6-nvidia>
+  # trocar o modelo grátis (confira ids atuais com `opencode models openrouter`),
+  # ou a reserva usada como fallback automático se o padrão falhar/travar:
+  python3 gerar_overlays.py ... --modelo openrouter/nvidia/nemotron-3-ultra-550b-a55b:free \
+                              --modelo-reserva openrouter/nvidia/nemotron-3-super-120b-a12b:free
 
   # caso pontual: forçar o Tech Lead (Claude Code, assinatura) num
   # overlay específico, por ex. pra corrigir um que o Dev não acertou:
   python3 gerar_overlays.py ... --agent claude
 
-Pré-requisitos no servidor: `opencode` autenticado (OpenCode Zen/ZenMux
-pro Kimi K3 grátis — ver setup/configurar-agentes.md), Node + npx (pro
-hyperframes CLI). Ver skills/motion-design-editorial/references/ambiente.md
-pros workarounds de rede/fonte/browser headless que podem ser
-necessários nesta infra.
+Pré-requisitos no servidor: `opencode` autenticado (basta `opencode auth
+login`; o provider `openrouter` com os modelos `:free` já vem embutido,
+sem precisar de ZenMux/conta separada), Node + npx (pro hyperframes
+CLI). Ver skills/motion-design-editorial/references/ambiente.md pros
+workarounds de rede/fonte/browser headless que podem ser necessários
+nesta infra.
 
-NÃO TESTADO EM PRODUÇÃO: a sintaxe exata de `opencode run` (e a flag de
-modelo) abaixo deve ser conferida contra a versão instalada no servidor
-(`opencode --help` / `opencode run --help`) antes de confiar nisso
-rodando sozinho. Kimi K3 é bem mais fraco que Claude pra esse tipo de
-tarefa agente-longa (ler várias referências, rodar check/render,
-depurar) — espere precisar revisar mais os resultados, principalmente
-pros padrões já marcados como "baixa prontidão" no
-integracao-pipeline.md (ritmo, território, janela).
+Testado manualmente uma vez: `opencode run --model
+openrouter/nvidia/nemotron-3-ultra-550b-a55b:free "..."` respondeu
+corretamente num teste simples. O fluxo completo (ler a skill, montar
+GSAP, rodar check/render) ainda não foi validado de ponta a ponta — esse
+modelo é bem mais fraco que Claude pra tarefa agente-longa, espere
+precisar revisar mais os resultados, principalmente pros padrões já
+marcados como "baixa prontidão" no integracao-pipeline.md (ritmo,
+território, janela).
 """
 
 import argparse
@@ -150,10 +153,11 @@ def main():
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--agent", default="opencode", choices=["opencode", "claude"],
                      help="agente a usar (padrão: opencode = Dev, grátis). 'claude' usa o Tech Lead/assinatura.")
-    ap.add_argument("--modelo", default="kimi-k3-free",
-                     help="modelo passado ao agente opencode (ver setup/configurar-agentes.md); ignorado com --agent claude")
-    ap.add_argument("--modelo-reserva", default="",
-                     help="modelo de fallback (ex: Kimi K2.6 via NVIDIA NIM) se --modelo falhar; vazio = sem fallback")
+    ap.add_argument("--modelo", default="openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+                     help="modelo passado ao agente opencode, formato provider/model "
+                          "(confirme ids atuais com `opencode models openrouter`); ignorado com --agent claude")
+    ap.add_argument("--modelo-reserva", default="openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+                     help="modelo de fallback se --modelo falhar/travar; vazio = sem fallback")
     ap.add_argument("--timeout", type=int, default=900, help="timeout em segundos por overlay")
     args = ap.parse_args()
 
