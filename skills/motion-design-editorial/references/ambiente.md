@@ -81,15 +81,35 @@ sandbox usando as ferramentas que já tem disponíveis):
    `Georgia`/`Times New Roman`→`Liberation Serif`. **Sem isso todo
    texto renderiza em branco, sem erro visível** — só aparece ao
    inspecionar o snapshot.
+
+   **Atenção (erro visto em 2026-10-10)**: não basta ter os aliases no
+   `fonts.conf` — se faltar a tag `<dir>` apontando pro diretório onde
+   os `.ttf` foram extraídos, o fontconfig não encontra fonte nenhuma e
+   **todo o texto renderiza 100% invisível** (0 pixels de texto),
+   mantendo só os elementos não-texto (bordas, formas) visíveis e
+   corretamente posicionados. É fácil confundir esse sintoma com outro
+   bug (ex.: achar que é posicionamento), porque o resto da composição
+   aparece normal. Sempre inclua `<dir>${FONT_DIR}</dir>` no
+   `fonts.conf`, e valide renderizando um teste simples com texto antes
+   de rodar o snapshot oficial — não confie só em "o comando rodou sem
+   erro".
 4. **Variáveis de ambiente**, antes de `check`/`snapshot`/`render`:
    - `HYPERFRAMES_BROWSER_PATH` → caminho do binário `chrome-headless-shell` extraído
    - `LD_LIBRARY_PATH` → inclui `$HOME/.cache/chrome-debs/rootfs/usr/lib/x86_64-linux-gnu` e `.../usr/lib`
    - `PATH` → inclui `$HOME/.cache/chrome-debs/rootfs/usr/bin`
    - `FONTCONFIG_FILE` → caminho do `fonts.conf` criado no passo 3
+5. **FFmpeg**: baixar `ffmpeg` via `apt-get download` + `dpkg-deb -x`
+   no mesmo `rootfs` pode gerar um binário quebrado — visto em
+   2026-10-10, falhando com `libraw1394.so.11: cannot open shared
+   object file` (lib de firewire, transitiva e fácil de não baixar).
+   Em vez de caçar mais essa dependência, prefira baixar um **binário
+   estático do ffmpeg** (ex. build estático 7.0.2 da
+   johnvansickle.com/ffmpeg ou equivalente) e apontar o `PATH` pra ele
+   — elimina esse problema de dependências transitivas de vez.
 
 Antes de gastar tempo tentando `apt install` direto (não tem `sudo`
 nesse sandbox) ou um download automático diferente, siga esse checklist
-— já foi validado duas vezes.
+— já foi validado três vezes.
 
 ## 3. Fontes do manual não disponíveis no ambiente de render
 
