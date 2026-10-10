@@ -58,14 +58,22 @@ sandbox usando as ferramentas que já tem disponíveis):
    (`chrome-headless-shell`) depois.
 2. **Libs de sistema**: baixe (sem precisar de `sudo` — o comando de
    "download apenas" do gerenciador de pacotes do SO funciona sem
-   privilégio) os pacotes: `libglib2.0-0`, `libnss3`, `libx11-6`,
-   `libxext6`, `libxfixes3`, `libxrandr2`, `libgbm1`, `libatk1.0-0`,
-   `libatk-bridge2.0-0`, `libcups2`, `libdrm2`, `libpango-1.0-0`,
-   `libcairo2`, `libasound2`, `libxcomposite1`, `libxdamage1`,
-   `libxkbcommon0` para `$HOME/.cache/chrome-debs/packages/`, depois
-   extraia cada pacote (sem instalar de fato — só extrair o conteúdo,
-   via a ferramenta nativa do SO pra isso) para
+   privilégio) os pacotes: `libglib2.0-0`, `libnss3`, `libnspr4`,
+   `libx11-6`, `libxext6`, `libxfixes3`, `libxrandr2`, `libgbm1`,
+   `libatk1.0-0`, `libatk-bridge2.0-0`, `libcups2`, `libdrm2`,
+   `libpango-1.0-0`, `libcairo2`, `libasound2`, `libxcomposite1`,
+   `libxdamage1`, `libxkbcommon0` para `$HOME/.cache/chrome-debs/packages/`,
+   depois extraia cada pacote (sem instalar de fato — só extrair o
+   conteúdo, via a ferramenta nativa do SO pra isso) para
    `$HOME/.cache/chrome-debs/rootfs/`.
+
+   **Atenção**: `libnss3` depende do NSPR (`libnspr4`) — se faltar só o
+   `libnspr4.so` (erro visto em 2026-10-09), é esse pacote que ficou de
+   fora. O gerenciador de pacotes às vezes não resolve dependências
+   transitivas no modo "download apenas", então baixe os pacotes
+   individualmente em vez de confiar em resolução automática — confira
+   com `ldd` no binário `chrome-headless-shell` extraído quais `.so`
+   ainda faltam antes de desistir e pedir ajuda.
 3. **Fontes**: mesma lógica pros pacotes `fonts-liberation2` e
    `fonts-dejavu-core`, extraídos no mesmo `rootfs`. Depois, crie um
    arquivo de config do fontconfig apontando pro diretório de fontes
